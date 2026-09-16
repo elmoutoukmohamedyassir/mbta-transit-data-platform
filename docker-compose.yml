@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: mbta_dw
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  minio:
+    image: quay.io/minio/minio
+    container_name: mbta_lake
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"   # API port (used by scripts/code)
+      - "9001:9001"   # Web console (browser UI)
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+volumes:
+  pg_data:
+  minio_data:
