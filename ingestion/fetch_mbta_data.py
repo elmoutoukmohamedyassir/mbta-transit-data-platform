@@ -24,12 +24,10 @@ bucket_name = "mbta-raw"
 if not client.bucket_exists(bucket_name):
     client.make_bucket(bucket_name)
 
-url = "https://api-v3.mbta.com/vehicles"
-params = {"filter[route]": "Red"}
 headers = {"x-api-key": mbta_api_key}
 
 
-def fetch_and_save():
+def fetch_and_save(url, params, folder_name):
     response = requests.get(url, params=params, headers=headers)
 
     if response.status_code == 200:
@@ -37,8 +35,8 @@ def fetch_and_save():
         raw_bytes = json.dumps(data).encode("utf-8")
 
         now = datetime.now(timezone.utc)
-        filename = f"vehicles_{now.strftime('%Y-%m-%dT%H-%M-%S')}.json"
-        object_path = f"vehicles/{filename}"
+        filename = f"{folder_name}_{now.strftime('%Y-%m-%dT%H-%M-%S')}.json"
+        object_path = f"{folder_name}/{filename}"
 
         client.put_object(
             bucket_name,
@@ -47,12 +45,21 @@ def fetch_and_save():
             length=len(raw_bytes),
             content_type="application/json"
         )
-        print(f"Saved: {object_path} ({len(data['data'])} vehicles)")
+        print(f"Saved: {object_path} ({len(data['data'])} records)")
     else:
-        print(f"Error {response.status_code}: {response.text}")
+        print(f"Error {response.status_code} on {url}: {response.text}")
 
 
 # ── The loop: repeat forever, every 30 seconds ─────────────────────
 while True:
-    fetch_and_save()
+    fetch_and_save(
+        url="https://api-v3.mbta.com/vehicles",
+        params={"filter[route]": "Red"},
+        folder_name="vehicles"
+    )
+    fetch_and_save(
+        url="https://api-v3.mbta.com/predictions",
+        params={"filter[route]": "Red"},
+        folder_name="predictions"
+    )
     time.sleep(30)
