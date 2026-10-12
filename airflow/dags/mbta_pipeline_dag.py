@@ -15,6 +15,8 @@ default_args = {
     schedule="*/2 * * * *",   # every 2 minutes
     start_date=datetime(2026, 9, 18),
     catchup=False,
+    max_active_runs=1,                      # never let two runs overlap
+    dagrun_timeout=timedelta(minutes=10),   # fail a stuck run instead of waiting forever
     default_args=default_args,
     tags=["mbta"],
 )
