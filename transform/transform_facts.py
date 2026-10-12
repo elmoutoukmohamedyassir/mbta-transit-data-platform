@@ -8,8 +8,10 @@ from minio import Minio
 # ── Setup ────────────────────────────────────────────────────────
 load_dotenv()
 
+# MINIO_HOST / POSTGRES_HOST default to localhost (running from your terminal)
+# and are overridden by Airflow's containers via environment variables.
 minio_client = Minio(
-    "localhost:9000",
+    os.getenv("MINIO_HOST", "localhost:9000"),
     access_key=os.getenv("MINIO_ROOT_USER"),
     secret_key=os.getenv("MINIO_ROOT_PASSWORD"),
     secure=False
@@ -17,7 +19,7 @@ minio_client = Minio(
 bucket_name = "mbta-raw"
 
 conn = psycopg2.connect(
-    host="localhost",
+    host=os.getenv("POSTGRES_HOST", "localhost"),
     port=5433,
     dbname=os.getenv("POSTGRES_DB"),
     user=os.getenv("POSTGRES_USER"),
