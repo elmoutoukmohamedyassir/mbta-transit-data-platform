@@ -27,6 +27,26 @@ conn = psycopg2.connect(
 )
 cursor = conn.cursor()
 
+# ── Remember which raw files were already loaded (incremental loading) ──
+cursor.execute(
+    """
+    CREATE TABLE IF NOT EXISTS processed_files (
+        object_name  TEXT PRIMARY KEY,
+        processed_at TIMESTAMPTZ DEFAULT NOW()
+    )
+    """
+)
+conn.commit()
+
+cursor.execute("SELECT object_name FROM processed_files")
+processed = {row[0] for row in cursor.fetchall()}
+
+# ── Dimension IDs we already know exist (avoids repeating the same insert) ──
+cursor.execute("SELECT trip_id FROM dim_trips")
+known_trips = {row[0] for row in cursor.fetchall()}
+cursor.execute("SELECT stop_id FROM dim_stops")
+known_stops = {row[0] for row in cursor.fetchall()}
+
 
 def parse_recorded_at(object_name):
     """Extract the snapshot timestamp from a filename like
@@ -43,6 +63,8 @@ def ensure_trip_exists(trip_id, route_id="Red"):
     trip never listed in the static /trips endpoint), create a
     minimal stub row so the foreign key constraint doesn't reject
     our fact row."""
+    if trip_id in known_trips:
+        return
     cursor.execute(
         """
         INSERT INTO dim_trips (trip_id, route_id, headsign, direction_id)
@@ -51,6 +73,7 @@ def ensure_trip_exists(trip_id, route_id="Red"):
         """,
         (trip_id, route_id)
     )
+    known_trips.add(trip_id)
 
 
 def ensure_stop_exists(stop_id):
@@ -58,6 +81,8 @@ def ensure_stop_exists(stop_id):
     child stop not included in the station-level /stops response),
     create a minimal stub row so the foreign key constraint doesn't
     reject our fact row."""
+    if stop_id in known_stops:
+        return
     cursor.execute(
         """
         INSERT INTO dim_stops (stop_id, stop_name, latitude, longitude)
@@ -66,17 +91,36 @@ def ensure_stop_exists(stop_id):
         """,
         (stop_id,)
     )
+    known_stops.add(stop_id)
+
+
+def read_snapshot(object_name):
+    response = minio_client.get_object(bucket_name, object_name)
+    try:
+        return json.loads(response.read())
+    finally:
+        response.close()
+        response.release_conn()
+
+
+def mark_processed(object_name):
+    cursor.execute(
+        "INSERT INTO processed_files (object_name) VALUES (%s) ON CONFLICT DO NOTHING",
+        (object_name,)
+    )
+    processed.add(object_name)
 
 
 def load_vehicle_positions():
     objects = minio_client.list_objects(bucket_name, prefix="vehicles/", recursive=True)
-    inserted = 0
+    files_done = 0
+    rows = 0
 
     for obj in objects:
-        response = minio_client.get_object(bucket_name, obj.object_name)
-        raw = response.read()
-        data = json.loads(raw)
+        if obj.object_name in processed:
+            continue  # already loaded in an earlier run
 
+        data = read_snapshot(obj.object_name)
         recorded_at = parse_recorded_at(obj.object_name)
 
         for vehicle in data["data"]:
@@ -104,22 +148,26 @@ def load_vehicle_positions():
                 """,
                 (vehicle_id, trip_id, stop_id, latitude, longitude, current_status, recorded_at)
             )
-            inserted += 1
+            rows += 1
 
+        # rows + "this file is done" are saved together, or not at all
+        mark_processed(obj.object_name)
         conn.commit()
+        files_done += 1
 
-    print(f"Processed vehicle positions: {inserted} rows attempted")
+    print(f"Vehicle positions: {files_done} new files, {rows} rows attempted", flush=True)
 
 
 def load_predictions():
     objects = minio_client.list_objects(bucket_name, prefix="predictions/", recursive=True)
-    inserted = 0
+    files_done = 0
+    rows = 0
 
     for obj in objects:
-        response = minio_client.get_object(bucket_name, obj.object_name)
-        raw = response.read()
-        data = json.loads(raw)
+        if obj.object_name in processed:
+            continue  # already loaded in an earlier run
 
+        data = read_snapshot(obj.object_name)
         recorded_at = parse_recorded_at(obj.object_name)
 
         for prediction in data["data"]:
@@ -147,11 +195,13 @@ def load_predictions():
                 """,
                 (trip_id, stop_id, vehicle_id, arrival_time, departure_time, recorded_at)
             )
-            inserted += 1
+            rows += 1
 
+        mark_processed(obj.object_name)
         conn.commit()
+        files_done += 1
 
-    print(f"Processed predictions: {inserted} rows attempted")
+    print(f"Predictions: {files_done} new files, {rows} rows attempted", flush=True)
 
 
 load_vehicle_positions()
