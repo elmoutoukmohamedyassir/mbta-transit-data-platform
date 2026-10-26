@@ -10,6 +10,7 @@ spark = (
     SparkSession.builder
     .appName("mbta_delay_analysis")
     .config("spark.jars.packages", "org.postgresql:postgresql:42.7.3")
+    .config("spark.sql.session.timeZone", "America/New_York")
     .getOrCreate()
 )
 
@@ -58,7 +59,7 @@ delays = (
     )
 )
 
-# ── Aggregate: average delay per stop, per hour of day ──
+# ── Aggregate: average delay per stop, per hour of day (Boston time) ──
 delay_summary = (
     delays
     .withColumn("hour_of_day", F.hour("actual_arrival_time"))
