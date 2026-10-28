@@ -240,3 +240,6 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+.env
+airflow/.env
+airflow/logs/
