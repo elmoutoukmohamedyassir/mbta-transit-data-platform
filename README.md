@@ -45,7 +45,7 @@ Copy secrets into `.env` (never commit it): MBTA API key, Postgres and MinIO cre
 - MBTA reuses `trip_id` across days, which produced ~24 h fake delays → service date is part of every key.
 - Re-reading every file each run was too slow → incremental loading with `processed_files`.
 
-## Limitations (honest)
+## Limitations 
 
 - Snapshots every 2 min can overstate delays by up to ~2 min.
 - The first prediction is a proxy for the timetable, not the official schedule.
