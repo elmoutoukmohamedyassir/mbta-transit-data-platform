@@ -9,19 +9,29 @@ from minio import Minio
 load_dotenv()
 mbta_api_key = os.getenv("MBTA_API_KEY")
 
+# ── Storage backend: local MinIO by default, AWS S3 when env vars say so ──
+# Local (nothing to set): same behaviour as before.
+# AWS S3: STORAGE_ENDPOINT=s3.amazonaws.com, STORAGE_SECURE=true,
+#         STORAGE_REGION=<your region>, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY,
+#         BUCKET_NAME=<your globally unique bucket name>
 # Note: "host.docker.internal" instead of "localhost" — this script
 # is meant to run INSIDE an Airflow container, which cannot reach
 # your machine's services via "localhost" the way your own terminal can.
-minio_host = os.getenv("MINIO_HOST", "host.docker.internal:9000")
+storage_endpoint = (
+    os.getenv("STORAGE_ENDPOINT")
+    or os.getenv("MINIO_HOST", "host.docker.internal:9000")
+)
+storage_secure = os.getenv("STORAGE_SECURE", "false").lower() == "true"
 
 client = Minio(
-    minio_host,
-    access_key=os.getenv("MINIO_ROOT_USER"),
-    secret_key=os.getenv("MINIO_ROOT_PASSWORD"),
-    secure=False
+    storage_endpoint,
+    access_key=os.getenv("STORAGE_ACCESS_KEY") or os.getenv("MINIO_ROOT_USER"),
+    secret_key=os.getenv("STORAGE_SECRET_KEY") or os.getenv("MINIO_ROOT_PASSWORD"),
+    secure=storage_secure,
+    region=os.getenv("STORAGE_REGION") or None,
 )
 
-bucket_name = "mbta-raw"
+bucket_name = os.getenv("BUCKET_NAME", "mbta-raw")
 if not client.bucket_exists(bucket_name):
     client.make_bucket(bucket_name)
 
@@ -29,7 +39,8 @@ headers = {"x-api-key": mbta_api_key}
 
 
 def fetch_and_save(url, params, folder_name):
-    response = requests.get(url, params=params, headers=headers)
+    # timeout: never let one hung API call stall the whole 2-minute run
+    response = requests.get(url, params=params, headers=headers, timeout=30)
 
     if response.status_code == 200:
         data = response.json()
