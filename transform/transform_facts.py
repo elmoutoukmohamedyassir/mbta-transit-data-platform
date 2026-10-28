@@ -9,15 +9,25 @@ from parsing import parse_recorded_at
 # ── Setup ────────────────────────────────────────────────────────
 load_dotenv()
 
+# Storage backend: local MinIO by default, AWS S3 when env vars say so.
+# STORAGE_ENDPOINT / STORAGE_SECURE / STORAGE_REGION / STORAGE_ACCESS_KEY /
+# STORAGE_SECRET_KEY / BUCKET_NAME override the MinIO defaults below.
 # MINIO_HOST / POSTGRES_HOST default to localhost (running from your terminal)
 # and are overridden by Airflow's containers via environment variables.
-minio_client = Minio(
-    os.getenv("MINIO_HOST", "localhost:9000"),
-    access_key=os.getenv("MINIO_ROOT_USER"),
-    secret_key=os.getenv("MINIO_ROOT_PASSWORD"),
-    secure=False
+storage_endpoint = (
+    os.getenv("STORAGE_ENDPOINT")
+    or os.getenv("MINIO_HOST", "localhost:9000")
 )
-bucket_name = "mbta-raw"
+storage_secure = os.getenv("STORAGE_SECURE", "false").lower() == "true"
+
+minio_client = Minio(
+    storage_endpoint,
+    access_key=os.getenv("STORAGE_ACCESS_KEY") or os.getenv("MINIO_ROOT_USER"),
+    secret_key=os.getenv("STORAGE_SECRET_KEY") or os.getenv("MINIO_ROOT_PASSWORD"),
+    secure=storage_secure,
+    region=os.getenv("STORAGE_REGION") or None,
+)
+bucket_name = os.getenv("BUCKET_NAME", "mbta-raw")
 
 # A file that failed this many times is skipped until you delete its row
 # from failed_files (so a permanently corrupt file stops being retried).
